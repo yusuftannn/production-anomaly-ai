@@ -1,0 +1,6 @@
+# Ana paketlerin test ortamındaki sürümleri; tam bağımlılık kilidi değildir.
+numpy==2.3.5
+pandas==2.2.3
+scikit-learn==1.8.0
+streamlit==1.65.0
+plotly==6.9.0
