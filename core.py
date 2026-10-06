@@ -59,6 +59,18 @@ def feature_frame(df: pd.DataFrame) -> pd.DataFrame:
     return x[FEATURES]
 
 
+def machine_metrics(test: pd.DataFrame) -> dict:
+    by_machine = {}
+    for machine, group in test.groupby('machine', sort=True):
+        precision, recall, f1, _ = precision_recall_fscore_support(
+            group['is_anomaly'], group['predicted_anomaly'], average='binary', zero_division=0)
+        by_machine[str(machine)] = {
+            'records': len(group), 'positive_labels': int(group['is_anomaly'].sum()),
+            'precision': float(precision), 'recall': float(recall), 'f1': float(f1),
+        }
+    return by_machine
+
+
 @dataclass
 class Analysis:
     train: pd.DataFrame
@@ -98,7 +110,8 @@ def analyze(frame: pd.DataFrame, contamination: float = 0.08, train_ratio: float
         precision, recall, f1, _ = precision_recall_fscore_support(y, p, average='binary', zero_division=0)
         metrics = {'precision': float(precision), 'recall': float(recall), 'f1': float(f1),
                    'confusion_matrix': confusion_matrix(y, p, labels=[0, 1]).tolist(),
-                   'positive_labels': int(y.sum()), 'negative_labels': int((y == 0).sum())}
+                   'positive_labels': int(y.sum()), 'negative_labels': int((y == 0).sum()),
+                   'by_machine': machine_metrics(test)}
     unseen = sorted(set(test['machine']) - set(train['machine']))
     return Analysis(train, test, train_x, model, metrics, unseen)
 

@@ -4,6 +4,7 @@ import json
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from sklearn.metrics import precision_recall_fscore_support
 from core import analyze, export_csv, record_context
 from demo import generate_demo
 from ollama_client import explain, list_models
@@ -68,9 +69,14 @@ if result.unseen_machines:
 overview, inspect, learn = st.tabs(['Sonuçlar', 'Kayıt incele', 'Nasıl öğreniyor?'])
 with overview:
     selected_machines = st.multiselect('Makine filtresi', sorted(result.test.machine.unique()))
+    min_date = result.test['timestamp'].dt.date.min()
+    max_date = result.test['timestamp'].dt.date.max()
+    selected_dates = st.date_input('Tarih aralığı', value=(min_date, max_date), min_value=min_date, max_value=max_date)
     filtered = result.test
     if selected_machines:
         filtered = filtered[filtered.machine.isin(selected_machines)]
+    if len(selected_dates) == 2:
+        filtered = filtered[filtered['timestamp'].dt.date.between(selected_dates[0], selected_dates[1])]
     daily = filtered.groupby('timestamp')[['anomaly_score']].max().reset_index()
     fig = px.line(daily, x='timestamp', y='anomaly_score', title='Her günün en yüksek anomali skoru')
     fig.add_hline(y=0, line_dash='dash', annotation_text='Karar eşiği')
@@ -87,12 +93,28 @@ with overview:
         if source == 'Sentetik demo':
             st.caption('Bu skorlar sentetik anomalileri bulma başarısıdır; gerçek fabrika başarısını göstermez.')
         m = result.metrics
+        if 'by_machine' not in m:
+            m['by_machine'] = {}
+            for machine, group in result.test.groupby('machine', sort=True):
+                precision, recall, f1, _ = precision_recall_fscore_support(
+                    group['is_anomaly'], group['predicted_anomaly'], average='binary', zero_division=0)
+                m['by_machine'][str(machine)] = {
+                    'records': len(group), 'positive_labels': int(group['is_anomaly'].sum()),
+                    'precision': float(precision), 'recall': float(recall), 'f1': float(f1),
+                }
         p, r, f = st.columns(3)
         p.metric('Precision', f"{m['precision']:.3f}")
         r.metric('Recall', f"{m['recall']:.3f}")
         f.metric('F1', f"{m['f1']:.3f}")
         st.dataframe(pd.DataFrame(m['confusion_matrix'], index=['Gerçek normal', 'Gerçek anomali'],
                                  columns=['Tahmin normal', 'Tahmin anomali']), width='stretch')
+        machine_metrics = pd.DataFrame(m['by_machine']).T.rename_axis('Makine').reset_index()
+        machine_metrics = machine_metrics.rename(columns={
+            'records': 'Test kaydı', 'positive_labels': 'Etiketli anomali',
+            'precision': 'Precision', 'recall': 'Recall', 'f1': 'F1'})
+        st.subheader('Makine bazında performans')
+        st.caption('Skorlar yalnızca kronolojik test döneminden hesaplanır; az sayıda etiketli anomali sonuçları oynaklaştırabilir.')
+        st.dataframe(machine_metrics.sort_values('F1'), hide_index=True, width='stretch')
         if not m['positive_labels'] or not m['negative_labels']:
             st.warning('Test verisinde iki sınıf birlikte yok; değerlendirme sınırlı.')
         st.download_button('Ölçümleri JSON indir', json.dumps(m, ensure_ascii=False, indent=2), 'metrics.json', 'application/json')

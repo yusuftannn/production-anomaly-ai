@@ -27,6 +27,23 @@ class ModelTests(unittest.TestCase):
         self.assertGreater(self.result.metrics['recall'], .6)
         self.assertGreater(self.result.metrics['precision'], .6)
 
+    def test_metrics_are_reported_per_machine(self):
+        test = self.result.test
+        by_machine = self.result.metrics['by_machine']
+        self.assertEqual(set(by_machine), set(test['machine']))
+        self.assertEqual(sum(item['records'] for item in by_machine.values()), len(test))
+        for machine, group in test.groupby('machine'):
+            item = by_machine[machine]
+            true_positive = ((group['is_anomaly'] == 1) & (group['predicted_anomaly'] == 1)).sum()
+            predicted_positive = group['predicted_anomaly'].sum()
+            actual_positive = group['is_anomaly'].sum()
+            precision = true_positive / predicted_positive if predicted_positive else 0
+            recall = true_positive / actual_positive if actual_positive else 0
+            f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0
+            self.assertAlmostEqual(item['precision'], precision)
+            self.assertAlmostEqual(item['recall'], recall)
+            self.assertAlmostEqual(item['f1'], f1)
+
     def test_bad_counts_and_durations_rejected(self):
         for col, value in [('scrap_count', 9999), ('downtime_minutes', 9999),
                            ('production_count', -1), ('production_count', 1.5), ('shift_minutes', 0)]:
