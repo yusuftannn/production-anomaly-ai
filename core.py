@@ -55,7 +55,7 @@ def feature_frame(df: pd.DataFrame) -> pd.DataFrame:
     x['scrap_rate'] = df['scrap_count'] / df['production_count'].clip(lower=1)
     x['downtime_rate'] = df['downtime_minutes'] / df['shift_minutes']
     running = df['shift_minutes'] - df['downtime_minutes']
-    x['production_per_running_minute'] = df['production_count'] / running.clip(lower=1)
+    x['production_per_running_minute'] = df['production_count'] / running.mask(running == 0, 1)
     return x[FEATURES]
 
 

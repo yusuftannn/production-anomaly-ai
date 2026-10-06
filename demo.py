@@ -22,7 +22,7 @@ def generate_demo(seed: int = 42, days: int = 180) -> pd.DataFrame:
                 else:
                     rate *= float(rng.uniform(.3, .5))
             count = int(max(0, round((480 - downtime) * rate)))
-            rows.append({'timestamp': (pd.Timestamp('2026-01-01') + pd.Timedelta(days=day)).isoformat(),
+            rows.append({'timestamp': (pd.Timestamp('2026-01-01') + pd.to_timedelta(day, unit='D')).isoformat(),
                          'machine': f'Makine-{machine:02d}', 'production_count': count,
                          'scrap_count': int(round(count * scrap_rate)),
                          'downtime_minutes': round(downtime, 2), 'shift_minutes': 480,

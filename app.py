@@ -67,16 +67,17 @@ if result.unseen_machines:
 
 overview, inspect, learn = st.tabs(['Sonuçlar', 'Kayıt incele', 'Nasıl öğreniyor?'])
 with overview:
-    daily = result.test.groupby('timestamp')[['anomaly_score']].max().reset_index()
+    selected_machines = st.multiselect('Makine filtresi', sorted(result.test.machine.unique()))
+    filtered = result.test
+    if selected_machines:
+        filtered = filtered[filtered.machine.isin(selected_machines)]
+    daily = filtered.groupby('timestamp')[['anomaly_score']].max().reset_index()
     fig = px.line(daily, x='timestamp', y='anomaly_score', title='Her günün en yüksek anomali skoru')
     fig.add_hline(y=0, line_dash='dash', annotation_text='Karar eşiği')
     st.plotly_chart(fig, width='stretch')
     st.caption('Skor > 0 ise kayıt işaretlenir. Skor bir olasılık veya yüzde güven değildir.')
-    selected_machines = st.multiselect('Makine filtresi', sorted(result.test.machine.unique()))
     only_anomalies = st.checkbox('Yalnızca işaretlenen kayıtlar', value=True)
-    shown = result.test
-    if selected_machines:
-        shown = shown[shown.machine.isin(selected_machines)]
+    shown = filtered
     if only_anomalies:
         shown = shown[shown.predicted_anomaly == 1]
     st.dataframe(shown.sort_values('anomaly_score', ascending=False), hide_index=True, width='stretch')

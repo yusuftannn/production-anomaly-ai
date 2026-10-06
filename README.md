@@ -55,7 +55,7 @@ Açılan arayüzde:
 Aşağıdaki kolonlar gereklidir:
 
 ```csv
-timestamp,machine,production_count,scrap_count,downtime_minutes,shift_minutes,is_anomaly
+timestamp,machine,production_count,scrap_count,downtime_minutes,shift_minutes
 ```
 
 Kolon açıklamaları:
@@ -66,7 +66,7 @@ Kolon açıklamaları:
 - `scrap_count`: hatalı ürün adedi
 - `downtime_minutes`: duruş süresi
 - `shift_minutes`: toplam vardiya süresi
-- `is_anomaly`: isteğe bağlı gerçek etiket (0 veya 1)
+- `is_anomaly`: isteğe bağlı gerçek etiket (0 veya 1); etiketsiz kullanımda bu kolonu eklemeyin.
 
 İsteğe bağlı etiket yoksa `is_anomaly` sütununu kaldırabilirsiniz. Aynı makine için aynı zamana ait tekrarlı kayıtlar kabul edilmez.
 

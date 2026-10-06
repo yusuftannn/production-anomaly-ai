@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch, MagicMock
 import pandas as pd
-from core import analyze, validate_data, FEATURES, export_csv, record_context
+from core import analyze, validate_data, feature_frame, FEATURES, export_csv, record_context
 from demo import generate_demo
 from ollama_client import explain
 
@@ -36,6 +36,12 @@ class ModelTests(unittest.TestCase):
                 df.loc[0, col] = value
                 with self.assertRaises(ValueError):
                     validate_data(df)
+
+    def test_fractional_running_time_is_not_rounded_up(self):
+        df = pd.DataFrame({'production_count': [2, 0], 'scrap_count': [0, 0],
+                           'downtime_minutes': [9.5, 10], 'shift_minutes': [10, 10]})
+        rates = feature_frame(df)['production_per_running_minute'].tolist()
+        self.assertEqual(rates, [4.0, 0.0])
 
     def test_duplicates_rejected(self):
         with self.assertRaises(ValueError):
