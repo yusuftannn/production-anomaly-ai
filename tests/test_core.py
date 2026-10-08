@@ -27,6 +27,25 @@ class ModelTests(unittest.TestCase):
         self.assertGreater(self.result.metrics['recall'], .6)
         self.assertGreater(self.result.metrics['precision'], .6)
 
+    def test_per_machine_models_use_training_history_only(self):
+        result = analyze(self.df, model_scope='per_machine')
+        self.assertEqual(set(result.machine_models), set(result.train.machine))
+        self.assertEqual(result.model_scope, 'per_machine')
+        self.assertEqual(result.fallback_machines, [])
+        changed = self.df.copy()
+        changed['is_anomaly'] = 1 - changed.is_anomaly
+        other = analyze(changed, model_scope='per_machine')
+        pd.testing.assert_series_equal(result.test.anomaly_score, other.test.anomaly_score)
+        pd.testing.assert_series_equal(result.test.predicted_anomaly, other.test.predicted_anomaly)
+
+    def test_per_machine_model_falls_back_without_enough_history(self):
+        known_machines = self.df[self.df.machine != 'Makine-04']
+        late_machine = self.df[self.df.machine == 'Makine-04'].tail(20)
+        result = analyze(pd.concat([known_machines, late_machine]), model_scope='per_machine')
+        self.assertNotIn('Makine-04', result.machine_models)
+        self.assertIn('Makine-04', result.fallback_machines)
+        self.assertIn('Makine-04', result.unseen_machines)
+
     def test_metrics_are_reported_per_machine(self):
         test = self.result.test
         by_machine = self.result.metrics['by_machine']
@@ -79,10 +98,13 @@ class ModelTests(unittest.TestCase):
         self.assertIn("'=1+1", text)
 
 class OllamaTests(unittest.TestCase):
-    def response(self, answer):
+    def response_content(self, content):
         response = MagicMock()
-        response.__enter__.return_value.read.return_value = json.dumps({'message': {'content': json.dumps(answer)}}).encode()
+        response.__enter__.return_value.read.return_value = json.dumps({'message': {'content': content}}).encode()
         return response
+
+    def response(self, answer):
+        return self.response_content(json.dumps(answer))
 
     def test_schema_and_payload(self):
         answer = {'summary': 'Özet', 'observations': ['Duruş yüksek'], 'checks': ['Kayıtları incele'], 'limitation': 'Teşhis değildir.'}
@@ -90,7 +112,19 @@ class OllamaTests(unittest.TestCase):
             self.assertEqual(explain({'anomaly_score': .1}, 'local-model'), answer)
             payload = json.loads(call.call_args.args[0].data)
             self.assertFalse(payload['stream'])
+            self.assertFalse(payload['think'])
             self.assertIn('format', payload)
+
+    def test_json_wrapped_in_markdown_is_accepted(self):
+        answer = {'summary': 'Özet', 'observations': [], 'checks': [], 'limitation': 'Teşhis değildir.'}
+        content = 'İstenen çıktı:\n```json\n' + json.dumps(answer) + '\n```'
+        with patch('ollama_client.request.urlopen', return_value=self.response_content(content)):
+            self.assertEqual(explain({}, 'local-model'), answer)
+
+    def test_non_json_content_has_actionable_error(self):
+        with patch('ollama_client.request.urlopen', return_value=self.response_content('Üzgünüm, yanıt veremiyorum.')):
+            with self.assertRaisesRegex(RuntimeError, 'structured output desteğini kontrol edin'):
+                explain({}, 'local-model')
 
     def test_invalid_schema_rejected(self):
         with patch('ollama_client.request.urlopen', return_value=self.response({'summary': 'Eksik'})):

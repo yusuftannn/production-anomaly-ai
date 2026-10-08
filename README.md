@@ -10,6 +10,8 @@ Bu proje, arıza nedeni teşhisi ya da öngörücü bakım yerine; operasyonel i
 - Zaman sırasına göre eğitim/test ayrımı
 - Isolation Forest tabanlı anomali tespiti
 - Makine filtresi, skor grafiği ve işaretlenen kayıt listesi
+- İsteğe bağlı makineye özel model; eğitiminde 30'dan az kayıt bulunan makineler ortak modeli kullanır
+- Filtrelenen test dönemi için makine bazında işaretlenme oranı ve skor özeti
 - Etiket varsa precision, recall, F1 ve confusion matrix hesaplama
 - Yerel Ollama ile açıklama üretme
 - Ollama kapalı olsa bile temel analiz çalıştırma
@@ -19,9 +21,10 @@ Bu proje, arıza nedeni teşhisi ya da öngörücü bakım yerine; operasyonel i
 1. CSV verisi doğrulanır.
 2. Her kayıt için üretim, hata oranı, duruş oranı ve çalışan dakika başına üretim özellikleri çıkarılır.
 3. Geçmiş zaman dilimleri eğitim, sonraki dönemler test için kullanılır.
-4. Isolation Forest yalnızca eğitim verisinden öğrenir.
+4. Isolation Forest yalnızca eğitim verisinden öğrenir. Varsayılan ortak modele ek olarak her makine için ayrı model seçilebilir; eğitiminde 30'dan az kayıt bulunan makineler ortak modele geri döner.
 5. Test kayıtları anomali olarak işaretlenir.
-6. Seçilen kayıt, eğitim referanslarıyla birlikte Ollama’ya gönderilir ve Türkçe açıklama üretilir.
+6. Sonuç ekranı filtrelere uyan kayıtları makine bazında özetler. İşaretlenme oranı arıza olasılığı değildir.
+7. Seçilen kayıt, eğitim referanslarıyla birlikte Ollama’ya gönderilir ve Türkçe açıklama üretilir.
 
 ## Teknoloji Stack
 

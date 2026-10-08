@@ -14,6 +14,24 @@ Kesin arıza nedeni üretme; olası kontrolleri öner. Referans aynı makineden 
 Sonucun gözlem olduğunu, arıza teşhisi olmadığını limitation alanında açıkla. İstenen JSON şemasına uy.'''
 
 
+def _decode_content(content: str) -> dict:
+    if not isinstance(content, str):
+        raise TypeError('Ollama message.content metin değil.')
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as original_error:
+        decoder = json.JSONDecoder()
+        for position, char in enumerate(content):
+            if char == '{':
+                try:
+                    result, _ = decoder.raw_decode(content[position:])
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(result, dict):
+                    return result
+        raise original_error
+
+
 def list_models() -> list[str]:
     with request.urlopen(BASE_URL + '/api/tags', timeout=5) as response:
         payload = json.load(response)
@@ -23,7 +41,7 @@ def list_models() -> list[str]:
 def explain(context: dict, model: str) -> dict:
     if not model.strip():
         raise ValueError('Ollama model adı gerekli.')
-    payload = {'model': model, 'stream': False, 'format': SCHEMA,
+    payload = {'model': model, 'stream': False, 'format': SCHEMA, 'think': False,
                'options': {'temperature': 0, 'num_predict': 700},
                'messages': [{'role': 'system', 'content': SYSTEM},
                             {'role': 'user', 'content': json.dumps(context, ensure_ascii=False)}]}
@@ -32,13 +50,13 @@ def explain(context: dict, model: str) -> dict:
     try:
         with request.urlopen(req, timeout=120) as response:
             body = json.load(response)
-        result = json.loads(body['message']['content'])
+        result = _decode_content(body['message']['content'])
     except error.HTTPError as exc:
         raise RuntimeError(f'Ollama HTTP {exc.code}. Modelin yüklü olduğunu ollama list ile kontrol edin.') from exc
     except (error.URLError, TimeoutError) as exc:
         raise RuntimeError('Yerel Ollama bağlantısı kurulamadı veya zaman aşımına uğradı. Ollama uygulamasını başlatın.') from exc
     except (ValueError, KeyError, TypeError) as exc:
-        raise RuntimeError('Ollama geçerli JSON yanıtı döndürmedi.') from exc
+        raise RuntimeError('Ollama yanıtı JSON olarak çözümlenemedi. Modelin JSON/structured output desteğini kontrol edin veya başka bir model deneyin.') from exc
     if not isinstance(result, dict) or set(result) != set(SCHEMA['required']):
         raise RuntimeError('Ollama yanıt alanları beklenen şemaya uymuyor.')
     for key in ['summary', 'limitation']:

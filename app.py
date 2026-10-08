@@ -22,6 +22,8 @@ with st.sidebar:
     ratio = st.slider('Eğitim için geçmiş veri oranı', .5, .85, .7, .05)
     contamination = st.slider('Eğitimde varsayılan anomali oranı', .01, .25, .08, .01)
     st.caption('Bu oran eğitim skorlarının karar eşiğini belirler. Testte aynı oranda anomali çıkması gerekmez.')
+    machine_specific = st.checkbox('Makineye özel model', value=False,
+        help='Her makine kendi geçmişinden öğrenir. Eğitimde 30 kaydı olmayan makineler ortak modeli kullanır.')
     train_clicked = st.button('Modeli eğit ve analiz et', type='primary', width='stretch')
 
 try:
@@ -39,13 +41,14 @@ try:
         df = generate_demo()
         fingerprint = 'demo-v1'
         st.caption('720 sentetik kayıt · 4 makine · 180 gün. Etiketler yalnızca ölçüm için kullanılır.')
-    config = (source, fingerprint, sep, ratio, contamination)
+    model_scope = 'per_machine' if machine_specific else 'shared'
+    config = (source, fingerprint, sep, ratio, contamination, model_scope)
     if st.session_state.get('analysis_config') != config:
         st.session_state.pop('analysis', None)
         st.session_state.pop('explanations', None)
     if train_clicked:
         with st.spinner('Geçmiş kayıtlardan model öğreniliyor…'):
-            st.session_state['analysis'] = analyze(df, contamination, ratio)
+            st.session_state['analysis'] = analyze(df, contamination, ratio, model_scope)
             st.session_state['analysis_config'] = config
     if 'analysis' not in st.session_state:
         st.subheader('Veri önizlemesi')
@@ -65,6 +68,9 @@ d.metric('Testte işaretlenen oran', f"{result.test['predicted_anomaly'].mean():
 st.caption(f"Eğitim sonu: {result.train.timestamp.max().date()} · Test başlangıcı: {result.test.timestamp.min().date()}")
 if result.unseen_machines:
     st.warning('Eğitimde görülmeyen makineler: ' + ', '.join(result.unseen_machines) + '. Sonuçları dikkatle inceleyin.')
+if result.fallback_machines:
+    st.warning('Makineye özel eğitim için yeterli geçmişi olmayan makinelerde ortak model kullanıldı: '
+               + ', '.join(result.fallback_machines) + '.')
 
 overview, inspect, learn = st.tabs(['Sonuçlar', 'Kayıt incele', 'Nasıl öğreniyor?'])
 with overview:
@@ -77,6 +83,25 @@ with overview:
         filtered = filtered[filtered.machine.isin(selected_machines)]
     if len(selected_dates) == 2:
         filtered = filtered[filtered['timestamp'].dt.date.between(selected_dates[0], selected_dates[1])]
+    st.subheader('Makine bazında izleme')
+    machine_summary = filtered.groupby('machine').agg(
+        test_records=('machine', 'size'),
+        anomaly_records=('predicted_anomaly', 'sum'),
+        anomaly_rate=('predicted_anomaly', 'mean'),
+        mean_anomaly_score=('anomaly_score', 'mean'),
+        max_anomaly_score=('anomaly_score', 'max'),
+    ).reset_index().rename(columns={
+        'machine': 'Makine', 'test_records': 'Test kaydı', 'anomaly_records': 'İşaretlenen kayıt',
+        'anomaly_rate': 'İşaretlenme oranı', 'mean_anomaly_score': 'Ortalama skor',
+        'max_anomaly_score': 'En yüksek skor',
+    })
+    st.dataframe(machine_summary.sort_values('İşaretlenme oranı', ascending=False),
+                 hide_index=True, width='stretch', column_config={
+                     'İşaretlenme oranı': st.column_config.NumberColumn(format='%.1%'),
+                     'Ortalama skor': st.column_config.NumberColumn(format='%.3f'),
+                     'En yüksek skor': st.column_config.NumberColumn(format='%.3f'),
+                 })
+    st.caption('İşaretlenme oranı, testte anomali olarak işaretlenen kayıt payıdır; arıza olasılığı değildir.')
     daily = filtered.groupby('timestamp')[['anomaly_score']].max().reset_index()
     fig = px.line(daily, x='timestamp', y='anomaly_score', title='Her günün en yüksek anomali skoru')
     fig.add_hline(y=0, line_dash='dash', annotation_text='Karar eşiği')

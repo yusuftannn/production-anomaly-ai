@@ -77,15 +77,21 @@ class Analysis:
     test: pd.DataFrame
     train_features: pd.DataFrame
     model: IsolationForest
+    machine_models: dict[str, IsolationForest]
+    model_scope: str
+    fallback_machines: list[str]
     metrics: dict | None
     unseen_machines: list[str]
 
 
-def analyze(frame: pd.DataFrame, contamination: float = 0.08, train_ratio: float = 0.7) -> Analysis:
+def analyze(frame: pd.DataFrame, contamination: float = 0.08, train_ratio: float = 0.7,
+            model_scope: str = 'shared') -> Analysis:
     if not 0 < contamination <= 0.5:
         raise ValueError('contamination 0 ile 0.5 arasında olmalı (0 hariç).')
     if not 0.5 <= train_ratio <= 0.85:
         raise ValueError('Eğitim oranı 0.5–0.85 arasında olmalı.')
+    if model_scope not in {'shared', 'per_machine'}:
+        raise ValueError('model_scope shared veya per_machine olmalı.')
     df = validate_data(frame)
     times = df['timestamp'].drop_duplicates().sort_values()
     if len(times) < 10:
@@ -99,9 +105,21 @@ def analyze(frame: pd.DataFrame, contamination: float = 0.08, train_ratio: float
     # Tarih, makine adı ve is_anomaly etiketi model özelliklerine dahil edilmez.
     model = IsolationForest(n_estimators=200, contamination=contamination, random_state=42, n_jobs=-1)
     model.fit(train_x)
-    test_x = feature_frame(test)
-    test['anomaly_score'] = -model.decision_function(test_x)
-    test['predicted_anomaly'] = (model.predict(test_x) == -1).astype(int)
+    machine_models = {}
+    if model_scope == 'per_machine':
+        for machine, group in train.groupby('machine', sort=True):
+            if len(group) >= 30:
+                machine_models[str(machine)] = IsolationForest(
+                    n_estimators=200, contamination=contamination, random_state=42, n_jobs=-1)
+                machine_models[str(machine)].fit(feature_frame(group))
+    fallback_machines = sorted(set(test['machine']) - set(machine_models)) if model_scope == 'per_machine' else []
+    test['anomaly_score'] = np.nan
+    test['predicted_anomaly'] = 0
+    for machine, group in test.groupby('machine', sort=True):
+        active_model = machine_models.get(str(machine), model)
+        test_x = feature_frame(group)
+        test.loc[group.index, 'anomaly_score'] = -active_model.decision_function(test_x)
+        test.loc[group.index, 'predicted_anomaly'] = (active_model.predict(test_x) == -1).astype(int)
     for col in FEATURES[1:]:
         test[col] = test_x[col]
     metrics = None
@@ -113,7 +131,8 @@ def analyze(frame: pd.DataFrame, contamination: float = 0.08, train_ratio: float
                    'positive_labels': int(y.sum()), 'negative_labels': int((y == 0).sum()),
                    'by_machine': machine_metrics(test)}
     unseen = sorted(set(test['machine']) - set(train['machine']))
-    return Analysis(train, test, train_x, model, metrics, unseen)
+    return Analysis(train, test, train_x, model, machine_models, model_scope,
+                    fallback_machines, metrics, unseen)
 
 
 def record_context(result: Analysis, index: int) -> dict:
