@@ -1,8 +1,10 @@
 import json
+import io
 import unittest
+import zipfile
 from unittest.mock import patch, MagicMock
 import pandas as pd
-from core import analyze, validate_data, feature_frame, FEATURES, export_csv, record_context
+from core import analyze, validate_data, feature_frame, FEATURES, export_csv, export_report, record_context
 from demo import generate_demo
 from ollama_client import explain
 
@@ -92,6 +94,20 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(ctx['baseline_scope'], 'same_machine')
         past = self.result.train_features.loc[self.result.train.machine == ctx['machine']]
         self.assertEqual(ctx['features']['scrap_rate']['training_median'], past.scrap_rate.median())
+        for item in ctx['features'].values():
+            self.assertIn(item['range_status'], {'below', 'within', 'above'})
+            expected = ('below' if item['value'] < item['training_p10'] else
+                        'above' if item['value'] > item['training_p90'] else 'within')
+            self.assertEqual(item['range_status'], expected)
+
+    def test_report_bundle_contains_results_metrics_and_metadata(self):
+        metadata = {'source': 'demo', 'model_scope': 'shared'}
+        with zipfile.ZipFile(io.BytesIO(export_report(self.result, metadata))) as archive:
+            self.assertEqual(set(archive.namelist()), {
+                'test_results.csv', 'metrics.json', 'run_metadata.json'})
+            self.assertIn('predicted_anomaly', archive.read('test_results.csv').decode('utf-8-sig'))
+            self.assertEqual(json.loads(archive.read('metrics.json')), self.result.metrics)
+            self.assertEqual(json.loads(archive.read('run_metadata.json')), metadata)
 
     def test_csv_formula_guard(self):
         text = export_csv(pd.DataFrame({'machine': ['=1+1', 'normal']})).decode('utf-8-sig')

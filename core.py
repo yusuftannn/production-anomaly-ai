@@ -1,7 +1,10 @@
 """Veri doğrulama, özellik oluşturma ve zamana göre anomali tespiti."""
 from dataclasses import dataclass
+import json
 import numpy as np
 import pandas as pd
+import io
+import zipfile
 from sklearn.ensemble import IsolationForest
 from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
 
@@ -140,15 +143,25 @@ def record_context(result: Analysis, index: int) -> dict:
     same = result.train['machine'].eq(row['machine'])
     baseline = result.train_features.loc[same] if same.any() else result.train_features
     values = feature_frame(result.test.loc[[index]]).iloc[0]
+    features = {}
+    for key in FEATURES:
+        value = float(values[key])
+        lower = float(baseline[key].quantile(.1))
+        upper = float(baseline[key].quantile(.9))
+        features[key] = {
+            'value': value,
+            'training_median': float(baseline[key].median()),
+            'training_p10': lower,
+            'training_p90': upper,
+            'range_status': 'below' if value < lower else 'above' if value > upper else 'within',
+        }
     return {
         'machine': str(row['machine']), 'timestamp': row['timestamp'].isoformat(),
         'predicted_anomaly': bool(row['predicted_anomaly']),
         'anomaly_score': float(row['anomaly_score']),
         'baseline_scope': 'same_machine' if same.any() else 'all_training_machines',
         'baseline_record_count': len(baseline),
-        'features': {key: {'value': float(values[key]), 'training_median': float(baseline[key].median()),
-                           'training_p10': float(baseline[key].quantile(.1)),
-                           'training_p90': float(baseline[key].quantile(.9))} for key in FEATURES},
+        'features': features,
     }
 
 
@@ -158,3 +171,13 @@ def export_csv(df: pd.DataFrame) -> bytes:
     for col in out.select_dtypes(include=['object', 'string']).columns:
         out[col] = out[col].map(lambda v: "'" + v if isinstance(v, str) and v.lstrip().startswith(('=', '+', '-', '@', '\t', '\r', '\n')) else v)
     return out.to_csv(index=False).encode('utf-8-sig')
+
+
+def export_report(result: Analysis, metadata: dict | None = None) -> bytes:
+    """Package test results, evaluation metrics, and run settings for sharing."""
+    report = io.BytesIO()
+    with zipfile.ZipFile(report, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('test_results.csv', export_csv(result.test))
+        archive.writestr('metrics.json', json.dumps(result.metrics, ensure_ascii=False, indent=2))
+        archive.writestr('run_metadata.json', json.dumps(metadata or {}, ensure_ascii=False, indent=2))
+    return report.getvalue()

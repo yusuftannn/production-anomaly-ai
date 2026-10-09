@@ -14,6 +14,8 @@ class AppTests(unittest.TestCase):
         self.assertEqual(len(app.metric), 7)
         self.assertIn('Şüpheli test kaydı', [m.label for m in app.metric])
         self.assertIn('Makine bazında izleme', [header.value for header in app.subheader])
+        self.assertEqual(len(app.get('plotly_chart')), 2)
+        self.assertIn('Tam analiz raporunu ZIP indir', [button.label for button in app.get('download_button')])
         app.session_state['analysis'].metrics.pop('by_machine')
         app.run(timeout=30)
         self.assertEqual(len(app.exception), 0)

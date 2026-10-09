@@ -10,6 +10,8 @@ Bu proje, arıza nedeni teşhisi ya da öngörücü bakım yerine; operasyonel i
 - Zaman sırasına göre eğitim/test ayrımı
 - Isolation Forest tabanlı anomali tespiti
 - Makine filtresi, skor grafiği ve işaretlenen kayıt listesi
+- Günlük işaretlenen kayıt sayısı trendi ve özelliklerin geçmiş P10-P90 aralığıyla karşılaştırması
+- Test sonuçları, ölçümler ve analiz ayarlarını içeren ZIP raporu
 - İsteğe bağlı makineye özel model; eğitiminde 30'dan az kayıt bulunan makineler ortak modeli kullanır
 - Filtrelenen test dönemi için makine bazında işaretlenme oranı ve skor özeti
 - Etiket varsa precision, recall, F1 ve confusion matrix hesaplama

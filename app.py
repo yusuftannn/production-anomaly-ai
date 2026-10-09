@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 from sklearn.metrics import precision_recall_fscore_support
-from core import analyze, export_csv, record_context
+from core import analyze, export_csv, export_report, record_context
 from demo import generate_demo
 from ollama_client import explain, list_models
 
@@ -102,17 +102,31 @@ with overview:
                      'En yüksek skor': st.column_config.NumberColumn(format='%.3f'),
                  })
     st.caption('İşaretlenme oranı, testte anomali olarak işaretlenen kayıt payıdır; arıza olasılığı değildir.')
-    daily = filtered.groupby('timestamp')[['anomaly_score']].max().reset_index()
-    fig = px.line(daily, x='timestamp', y='anomaly_score', title='Her günün en yüksek anomali skoru')
+    daily = (filtered.assign(day=filtered['timestamp'].dt.floor('D'))
+             .groupby('day').agg(anomaly_score=('anomaly_score', 'max'),
+                                 anomaly_count=('predicted_anomaly', 'sum')).reset_index())
+    fig = px.line(daily, x='day', y='anomaly_score', title='Her günün en yüksek anomali skoru')
     fig.add_hline(y=0, line_dash='dash', annotation_text='Karar eşiği')
     st.plotly_chart(fig, width='stretch')
     st.caption('Skor > 0 ise kayıt işaretlenir. Skor bir olasılık veya yüzde güven değildir.')
+    count_fig = px.bar(daily, x='day', y='anomaly_count', title='Günlük işaretlenen kayıt sayısı')
+    st.plotly_chart(count_fig, width='stretch')
+    st.caption('Sayı, seçili makine ve tarih filtrelerindeki işaretli kayıtları gösterir; arıza sayısı değildir.')
     only_anomalies = st.checkbox('Yalnızca işaretlenen kayıtlar', value=True)
     shown = filtered
     if only_anomalies:
         shown = shown[shown.predicted_anomaly == 1]
     st.dataframe(shown.sort_values('anomaly_score', ascending=False), hide_index=True, width='stretch')
     st.download_button('Görünen kayıtları CSV indir', export_csv(shown), 'anomaly_results.csv', 'text/csv')
+    report_metadata = {
+        'source': source,
+        'dataset_fingerprint': fingerprint,
+        'training_ratio': ratio,
+        'contamination': contamination,
+        'model_scope': model_scope,
+    }
+    st.download_button('Tam analiz raporunu ZIP indir', export_report(result, report_metadata),
+                       'anomaly_report.zip', 'application/zip')
     if result.metrics:
         st.subheader('Test etiketlerine göre değerlendirme')
         if source == 'Sentetik demo':
@@ -151,9 +165,13 @@ with inspect:
     idx = st.selectbox('İncelenecek test kaydı', indices,
         format_func=lambda i: f"{result.test.loc[i, 'timestamp'].date()} · {result.test.loc[i, 'machine']} · skor {result.test.loc[i, 'anomaly_score']:.3f}")
     ctx = record_context(result, idx)
-    st.dataframe(pd.DataFrame(ctx['features']).T.rename(columns={
+    feature_details = pd.DataFrame(ctx['features']).T.rename(columns={
         'value': 'Kayıt değeri', 'training_median': 'Geçmiş medyan',
-        'training_p10': 'Geçmiş P10', 'training_p90': 'Geçmiş P90'}), width='stretch')
+        'training_p10': 'Geçmiş P10', 'training_p90': 'Geçmiş P90',
+        'range_status': 'Geçmiş aralığı'})
+    feature_details['Geçmiş aralığı'] = feature_details['Geçmiş aralığı'].map({
+        'below': 'Altında', 'within': 'İçinde', 'above': 'Üstünde'})
+    st.dataframe(feature_details, width='stretch')
     st.caption('Referans: eğitimdeki aynı makine kayıtları; bulunamazsa tüm eğitim kayıtları. Bunlar model özellik katkıları değildir.')
     model = st.text_input('Yüklü Ollama model adı', placeholder='ollama list çıktısındaki ad')
     if st.button('Yüklü modelleri göster'):
